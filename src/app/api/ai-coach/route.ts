@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
+type CoachHistoryItem = {
+  role?: "user" | "assistant" | "model";
+  content?: string;
+  text?: string;
+};
+
 type CoachContext = {
   lang?: "id" | "en";
   calorieTarget?: number;
@@ -13,7 +19,22 @@ type CoachContext = {
   heightCm?: number;
   bmi?: number;
   goal?: string;
+  history?: CoachHistoryItem[];
 };
+
+const CORE_BELIEF_ID =
+  "Aku bukan di sini untuk membuatmu takut makan. Aku di sini untuk membantumu memahami tubuhmu, memperbaiki kebiasaan, dan mencapai target dengan cara yang sehat.";
+
+const CORE_BELIEF_EN =
+  "I'm not here to make you afraid of food. I'm here to help you understand your body, build healthier habits, and reach your goals sustainably.";
+
+function pickVariant<T>(items: T[], seedText: string): T {
+  let hash = 0;
+  for (let i = 0; i < seedText.length; i += 1) {
+    hash = (hash * 31 + seedText.charCodeAt(i)) % 100000;
+  }
+  return items[Math.abs(hash) % items.length];
+}
 
 function buildFallbackCoachReply(prompt: string, ctx: CoachContext): string {
   const isId = ctx.lang !== "en";
@@ -25,72 +46,86 @@ function buildFallbackCoachReply(prompt: string, ctx: CoachContext): string {
   const loggedWater = ctx.loggedWater ?? 0;
   const remainingWater = Math.max(0, waterTarget - loggedWater);
   const proteinG = ctx.proteinTarget ?? 150;
+  const seed = `${q}-${loggedKcal}-${loggedWater}-${targetKcal}`;
 
   if (isId) {
-    // 0. Topik spesifik: Kopi / Kafein / Ngopi / Kopi malam
-    if (
-      q.includes("kopi") ||
-      q.includes("kafein") ||
-      q.includes("ngopi")
-    ) {
+    // 0. Kopi / Kafein / Ngopi
+    if (q.includes("kopi") || q.includes("kafein") || q.includes("ngopi")) {
       const isNightOrSleep =
         q.includes("malam") ||
         q.includes("tidur") ||
         q.includes("sore") ||
         q.includes("begadang");
 
-      return [
-        isNightOrSleep
-          ? "Jujur, minum kopi atau kopi susu pada malam hari menjelang tidur kurang cocok kalau tujuan Anda diet BB. Kafein bisa mengganggu kualitas tidur, dan tidur yang kurang nyenyak justru sering bikin nafsu makan lebih sulit dikontrol keesokan harinya."
-          : "Kopi sebenarnya tetap bisa masuk saat diet BB selama waktunya pas dan kalorinya terhitung—apalagi jika pakai susu, gula, atau kreamer.",
-        "Solusi praktis: jika ingin ngopi, sebaiknya lakukan di pagi atau siang hari (usahakan beri jeda 6–8 jam sebelum jam tidur). Kalau malam hari ingin minuman hangat, pilih air hangat atau teh herbal bebas kafein.",
-        `Tips & trik: kurangi tambahan gula/kental manis berlebih, perhatikan kenyamanan lambung jika diminum saat perut kosong, dan tetap sesuaikan dengan target harian Anda (${targetKcal} kcal).`,
-      ].join("\n\n");
+      if (isNightOrSleep) {
+        return pickVariant(
+          [
+            `${CORE_BELIEF_ID}\n\nKalau ngopinya pas malam menjelang tidur dan targetmu mau nurunin BB, ini agak kurang bersahabat sih. Bukan kopinya yang jahat, tapi kafeinnya bisa bikin tidur kepotong—dan tidur yang kurang nyenyak itu sering bikin besoknya gampang lapar atau pengen ngemil manis. Kalau kangen yang hangat malam-malam, air hangat atau teh bebas kafein lebih aman buat tidurmu. Jam berapa biasanya kamu mulai tidur?`,
+            `Ngopi malam itu seringnya bikin drama di jam tidur, padahal tidur yang cukup justru ngebantu ngontrol rasa lapar besok harinya. Kopi sendiri aman kok buat diet selama gula/susu kental manisnya nggak kebablasan dan waktunya pas. Biasanya kamu minum kopi hitam polos atau pakai susu/gula?`,
+          ],
+          seed
+        );
+      }
+
+      return pickVariant(
+        [
+          `Kopi tetap boleh masuk kok selama nggak berubah jadi "kopi gula aren + susu kental manis ekstra" tiap hari, haha. Yang paling penting sesuaikan sama total targetmu (${targetKcal} kcal) dan kasih jeda sebelum jam tidur biar malamnya nggak begadang. Kamu biasanya ngopi jam berapa dan pakai tambahan apa?`,
+          `Nggak perlu anti sama kopi cuma karena lagi atur pola makan. Selama waktunya cukup jauh dari jam tidur dan kalorinya masih masuk akal di target ${targetKcal} kcal, aman-aman saja. Hari ini sudah ngopi berapa gelas?`,
+        ],
+        seed
+      );
     }
 
-    // 1. Topik spesifik: Rendang / Gulai / Santan / Lauk bersantan
+    // 1. Rendang / Gulai / Santan / Makan malam
     if (
       q.includes("rendang") ||
       q.includes("gulai") ||
       q.includes("santan") ||
-      q.includes("bersantan")
+      q.includes("bersantan") ||
+      q.includes("nasi")
     ) {
-      return [
-        "Halo! Santai saja, rendang dan gulai tetap bisa masuk menu diet kok asal porsinya terukur.",
-        "Solusi & porsi aman: pilih 1 potong sedang daging/ayam (~70–100g) dan batasi kuah/bumbu berminyaknya agar lemak tidak melonjak drastis. Padukan dengan nasi porsi wajar (100–150g) serta sayuran/lalapan agar lebih mengenyangkan.",
-        `Tips & trik: saring kelebihan minyak/kuah pekat di sendok, kurangi gorengan atau minuman manis di waktu makan yang sama, dan sesuaikan dengan target harian Anda (${targetKcal} kcal).`,
-      ].join("\n\n");
+      return pickVariant(
+        [
+          `${CORE_BELIEF_ID}\n\nRendang, gulai, atau nasi itu nggak otomatis bikin diet gagal kok. Yang bikin kalorinya melonjak biasanya porsi kuah berminyaknya ditambah nasi sepiring penuh plus gorengan atau es manis sekaligus. Kalau mau nikmatin, ambil porsi lauk sewajarnya, tiriskan kelebihan minyak di kuah, dan tambah sayur biar kenyangnya lebih pas. Tadi siang sudah makan apa saja?`,
+          `Jujur, memusuhi makanan bersantan atau nasi justru sering bikin ujung-ujungnya balas dendam makan di akhir pekan. Kuncinya ada di porsi dan keseimbangan seharian, bukan mengharamkan satu jenis makanan. Kamu mau makan ini buat siang atau malam, dan biasanya porsinya seberapa?`,
+        ],
+        seed
+      );
     }
 
-    // 2. Topik spesifik: Minum air / Hidrasi / Begah
+    // 2. Hidrasi / Minum air / Begah
     if (
       q.includes("air") ||
       q.includes("hidrasi") ||
       q.includes("begah") ||
       (q.includes("minum") && !q.includes("kopi") && !q.includes("teh"))
     ) {
-      return [
-        `Halo! Target hidrasi Anda ${waterTarget} ml (tercatat ${loggedWater} ml, sisa ${remainingWater} ml). Minum sekaligus banyak memang bikin perut begah.`,
-        "Solusi praktis: bagi target minum menjadi 6–8 sesi kecil sepanjang hari (sekitar 150–250 ml tiap 1–2 jam), bukan diteguk banyak dalam satu waktu.",
-        "Tips & trik: siapkan botol/gelas khusus di meja kerja, minum 1 gelas setelah bangun tidur dan sebelum makan, lalu kurangi minum terlalu banyak tepat menjelang tidur agar tidak sering terbangun.",
-      ].join("\n\n");
+      return pickVariant(
+        [
+          `Wajar banget kalau langsung minum banyak bikin perut begah—lambung juga butuh waktu, bukan tangki bensin yang tinggal diguyur penuh, hehe. Targetmu ${waterTarget} ml (baru masuk ${loggedWater} ml, sisa ${remainingWater} ml). Coba cicil saja 150–200 ml tiap 1–2 jam mulai sekarang. Seharian ini lebih banyak duduk di ruangan AC atau lagi banyak gerak?`,
+          `Nggak usah dipaksa habisin sekaligus kalau bikin begah. Dengan sisa ${remainingWater} ml dari target ${waterTarget} ml, nyicil per gelas kecil tiap beberapa jam jauh lebih nyaman buat perut. Biasanya paling gampang lupa minum pas lagi sibuk kerja atau pas lagi di jalan?`,
+        ],
+        seed
+      );
     }
 
-    // 3. Topik spesifik: Menu makan siang / Tinggi protein
+    // 3. Menu makan siang / Tinggi protein
     if (
       q.includes("makan siang") ||
       q.includes("lunch") ||
       q.includes("protein") ||
       q.includes("menu")
     ) {
-      return [
-        `Siap, kita racik makan siang yang praktis dan kenyang lebih lama! Target protein harian Anda sekitar ${proteinG}g dengan sisa kalori hari ini ~${remainingKcal} kcal.`,
-        "Solusi menu praktis: 150g nasi putih (~195 kcal) + 120–150g dada ayam/ikan/tempe-tahu (~180–250 kcal) + tumis kangkung/bayam/capcay minyak ringan (~60–90 kcal).",
-        "Tips & trik: dahulukan protein dan sayur saat makan agar gula darah lebih stabil dan tidak gampang ngantuk atau lapar lagi di jam 3–4 sore.",
-      ].join("\n\n");
+      return pickVariant(
+        [
+          `Untuk makan siang, enaknya pilih kombinasi yang bikin kenyang lama tanpa bikin ngantuk berat—misalnya nasi porsi sedang, sumber protein seperti ayam/ikan/telur/tempe-tahu, dan sayur. Target proteinmu sekitar ${proteinG}g dan sisa kalori hari ini kira-kira ${remainingKcal} kcal. Lagi cari menu yang dimasak sendiri di rumah atau beli di luar?`,
+          `Nggak perlu bikin menu ribet kalau lagi buru-buru. Cukup pastikan ada protein dan sayur di piringmu biar kenyangnya tahan lebih lama sampai sore, lalu sesuaikan porsinya dengan sisa kalori sekitar ${remainingKcal} kcal. Bahan makanan apa yang paling gampang kamu siapkan hari ini?`,
+        ],
+        seed
+      );
     }
 
-    // 4. Topik spesifik: Jadwal olahraga / Lari / Jalan / Beban / Smartwatch
+    // 4. Latihan / Lari / Jalan / Beban / Smartwatch
     if (
       q.includes("lari") ||
       q.includes("jalan") ||
@@ -101,42 +136,48 @@ function buildFallbackCoachReply(prompt: string, ctx: CoachContext): string {
       q.includes("smartwatch") ||
       q.includes("jam")
     ) {
-      return [
-        "Untuk pemula, kunci utamanya adalah ritme yang konsisten dan tidak langsung memforsir tubuh di minggu pertama.",
-        "Solusi jadwal sederhana: 3–4 hari/minggu kombinasi jalan cepat/jogging 20–30 menit dan latihan beban dasar (squat, push-up/incline push-up, row, plank) 2–3 set per gerakan, beri jeda istirahat antar hari latihan.",
-        "Tips & trik: pemanasan 5 menit dulu sebelum mulai, dan jika pakai smartwatch/jam olahraga, jadikan angka kalori terbakar sebagai informasi tambahan saja—fokus utama tetap pada konsistensi latihan dan target nutrisi harian.",
-      ].join("\n\n");
+      return pickVariant(
+        [
+          `Mulai latihan itu yang paling penting masuk ritme dulu, bukan langsung gas pol sampai besoknya nggak bisa jalan. Kombinasi jalan kaki/jogging ringan dan latihan beban dasar beberapa kali seminggu sudah cukup kuat buat fondasi. Kalau pakai jam olahraga, anggap saja angka kalorinya sebagai perkiraan kasar, bukan patokan mutlak. Seminggu ini kamu realistisnya bisa meluangkan waktu berapa hari dan berapa menit per sesi?`,
+          `Jadwal latihan yang bagus itu jadwal yang benar-benar bisa kamu jalani tiap minggu, bukan yang paling kelihatan ambisius di kertas. Selipkan hari jeda supaya otot dan sendi punya waktu pulih. Kamu lebih cocok latihan di rumah, di luar, atau di gym?`,
+        ],
+        seed
+      );
     }
 
-    // 5. Topik kalori / diet umum
-    if (q.includes("kalori") || q.includes("diet") || q.includes("defisit")) {
-      return [
-        `Saat ini target harian Anda ${targetKcal} kcal, sudah tercatat ${loggedKcal} kcal, jadi tersisa sekitar ${remainingKcal} kcal.`,
-        "Solusi terbaik: jaga defisit/target tetap realistis dan cukupi protein harian agar rasa lapar lebih terkendali dan massa otot tetap terjaga.",
-        "Tips & trik: catat porsi makanan sedekat mungkin dengan realita (termasuk minyak goreng dan minuman manis) lalu evaluasi mingguan, bukan panik karena fluktuasi 1 hari.",
-      ].join("\n\n");
+    // 5. Kalori / diet / defisit / takut gemuk
+    if (
+      q.includes("kalori") ||
+      q.includes("diet") ||
+      q.includes("defisit") ||
+      q.includes("gemuk") ||
+      q.includes("takut")
+    ) {
+      return pickVariant(
+        [
+          `${CORE_BELIEF_ID}\n\nTargetmu sekarang ${targetKcal} kcal, baru tercatat ${loggedKcal} kcal (sisa sekitar ${remainingKcal} kcal). Defisit terlalu ekstrem itu biasanya cuma bikin gampang lemas dan ujung-ujungnya kebablasan makan. Tujuan utamamu sekarang lagi mau turun BB, jaga berat badan, atau naikin massa otot?`,
+          `Angka kalori itu alat bantu, bukan vonis salah-benar setiap suapan. Kalau hari ini baru masuk ${loggedKcal} kcal dari target ${targetKcal} kcal, fokus saja ke pola makan yang masih bisa kamu pertahankan minggu depan juga. Belakangan ini apa yang paling sering bikin rencana makanmu goyah?`,
+        ],
+        seed
+      );
     }
 
-    // 6. Jawaban CS natural untuk pertanyaan umum lainnya
-    return [
-      `Halo! Saya siap bantu jawab pertanyaan Anda terkait nutrisi, porsi makan, hidrasi, maupun latihan (target harian Anda saat ini ${targetKcal} kcal).`,
-      "Untuk jawaban yang paling pas, boleh sebutkan detail kondisinya—misalnya jenis makanan/porsi, keluhan begah/lapar/tidur, atau tujuan latihan Anda.",
-      "Tips & trik: mulai dari satu perubahan kecil yang paling mudah dilakukan hari ini, lalu konsistenkan.",
-    ].join("\n\n");
+    // 6. Pertanyaan umum lainnya
+    return pickVariant(
+      [
+        `${CORE_BELIEF_ID}\n\nTarget harianmu saat ini ${targetKcal} kcal (baru tercatat ${loggedKcal} kcal). Ceritakan saja kondisi yang lagi kamu hadapi sekarang—entah soal makanan tertentu, rasa lapar/begah, atau rutinitas latihan. Hari ini fokus utamamu lagi mau beresin bagian mana dulu?`,
+        `Aku siap bantu mikirin solusinya pelan-pelan sesuai kondisi tubuhmu sekarang (target ${targetKcal} kcal, sisa sekitar ${remainingKcal} kcal). Coba cerita lebih spesifik: lagi mikirin soal makan, minum, atau jadwal latihan?`,
+      ],
+      seed
+    );
   }
 
+  // Fallback Bahasa Inggris dengan gaya yang sama
   if (q.includes("coffee") || q.includes("caffeine") || q.includes("sleep")) {
-    return [
-      "Having coffee late at night before sleep isn't ideal if your goal is weight loss—caffeine can disrupt sleep quality, and poor sleep often increases hunger and cravings the next day.",
-      "Practical solution: enjoy coffee earlier in the day (ideally 6–8 hours before bedtime), and opt for warm water or caffeine-free herbal tea in the evening.",
-      `Tips & tricks: watch added sugar/syrups/creamers and keep everything aligned with your ${targetKcal} kcal daily target.`,
-    ].join("\n\n");
+    return `${CORE_BELIEF_EN}\n\nHaving coffee late in the evening can mess with your sleep quality, and poor sleep often makes hunger harder to manage the next day. Enjoying it earlier in the day with light add-ins usually works much better. Around what time do you usually go to bed?`;
   }
 
-  return [
-    `Hi! Your active daily target is ${targetKcal} kcal (${loggedKcal} kcal logged, ${remainingKcal} kcal left).`,
-    "Share what you're planning to eat, drink, or train today, and I'll give practical portions, solutions, and tips.",
-  ].join("\n\n");
+  return `${CORE_BELIEF_EN}\n\nYour current daily target is ${targetKcal} kcal (${loggedKcal} kcal logged, about ${remainingKcal} kcal left). Tell me what's on your mind today—meals, hydration, or workouts—and what your main goal is right now?`;
 }
 
 export async function POST(req: NextRequest) {
@@ -154,13 +195,57 @@ export async function POST(req: NextRequest) {
 
     const geminiKey = process.env.GEMINI_API_KEY;
     if (geminiKey) {
+      const isId = context.lang !== "en";
       const systemInstruction = [
-        "You are FitMate AI Coach, a warm, helpful, customer-support-style fitness and nutrition assistant.",
-        "Answer the user's exact question directly first, then provide practical tips, tricks, and actionable solutions.",
-        "Do NOT give generic meal/calorie replies when the user asks about coffee before sleep, hydration, or workout schedules.",
-        "Respond in Indonesian if context.lang === 'id', otherwise English. Keep formatting clean and mobile-friendly.",
-        `User context: ${JSON.stringify(context)}`,
-      ].join(" ");
+        "You are FitMate AI Coach, a warm, grounded fitness and nutrition coach.",
+        isId
+          ? `Core principle: "${CORE_BELIEF_ID}"`
+          : `Core principle: "${CORE_BELIEF_EN}"`,
+        "Communication rules:",
+        "- Talk naturally like a real WhatsApp chat—warm, conversational, and direct, not stiff customer-support templates.",
+        "- Do NOT default to bulleted lists or repeated formulaic sections like 'Solusi praktis' / 'Tips & trik'. Use plain conversational paragraphs; only use a short list when comparing 2-3 clear options.",
+        "- Light, natural humor is welcome when appropriate, never forced.",
+        "- Gently and clearly correct diet misconceptions or food fears when they come up, grounding advice in overall habits and the user's targets.",
+        "- Never repeat the same motivational sign-off every turn.",
+        "- End with a single specific, helpful follow-up question.",
+        `Respond in ${isId ? "Indonesian" : "English"}.`,
+        `User context: ${JSON.stringify({
+          calorieTarget: context.calorieTarget,
+          proteinTarget: context.proteinTarget,
+          carbsTarget: context.carbsTarget,
+          fatsTarget: context.fatsTarget,
+          waterTarget: context.waterTarget,
+          loggedCalories: context.loggedCalories,
+          loggedWater: context.loggedWater,
+          weightKg: context.weightKg,
+          heightCm: context.heightCm,
+          bmi: context.bmi,
+          goal: context.goal,
+        })}`,
+      ].join("\n");
+
+      const priorTurns = Array.isArray(context.history)
+        ? context.history
+            .slice(-6)
+            .map((item) => {
+              const rawText = String(item?.content ?? item?.text ?? "").trim();
+              if (!rawText) return null;
+              const role =
+                item?.role === "assistant" || item?.role === "model"
+                  ? "model"
+                  : "user";
+              return { role, parts: [{ text: rawText }] };
+            })
+            .filter(
+              (turn): turn is { role: "user" | "model"; parts: { text: string }[] } =>
+                turn !== null
+            )
+        : [];
+
+      const contents = [
+        ...priorTurns,
+        { role: "user" as const, parts: [{ text: message }] },
+      ];
 
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(
@@ -173,12 +258,7 @@ export async function POST(req: NextRequest) {
             systemInstruction: {
               parts: [{ text: systemInstruction }],
             },
-            contents: [
-              {
-                role: "user",
-                parts: [{ text: message }],
-              },
-            ],
+            contents,
           }),
         }
       );
