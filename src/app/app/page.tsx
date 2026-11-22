@@ -558,13 +558,9 @@ function AuthenticatedWorkspace({
         )}
 
         {/* KONTEN TAB LATIHAN */}
-        {activeTab === "workout" && (
-          <WorkoutTab
-            lang={lang}
-            workoutFocusType={workoutFocusType}
-            recommendedPlanTitle={planTitle}
-          />
-        )}
+      {activeTab === "workout" && (
+        <WorkoutTab lang={lang} />
+      )}
 
         {/* KONTEN TAB NUTRISI */}
         {activeTab === "nutrition" && (
