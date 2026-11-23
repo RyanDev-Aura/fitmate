@@ -20,6 +20,8 @@ import NutritionTab from "@/components/NutritionTab";
 import ProgressTab from "@/components/ProgressTab";
 import AiCoachTab from "@/components/AiCoachTab";
 import ProfileTab, { UserProfileSettings } from "@/components/ProfileTab";
+import DietProgressFollowUp from "@/components/DietProgressFollowUp";
+import type { BodyProgressLog } from "@/lib/progressAnalytics";
 
 type WorkoutPlan = {
   id: string;
@@ -173,6 +175,89 @@ function AuthenticatedWorkspace({
   const [activeTab, setActiveTab] = useState<
     "home" | "workout" | "nutrition" | "progress" | "coach" | "profile"
   >("home");
+
+  // State follow-up berat badan & perubahan bentuk fisik
+  const [progressLogs, setProgressLogs] = useState<BodyProgressLog[]>([]);
+  const [loadingProgress, setLoadingProgress] = useState<boolean>(false);
+
+  const progressUserKey =
+    (typeof memberProfile === "object" &&
+      memberProfile &&
+      "email" in memberProfile &&
+      typeof memberProfile.email === "string" &&
+      memberProfile.email) ||
+    (typeof memberProfile === "object" &&
+      memberProfile &&
+      "id" in memberProfile &&
+      typeof memberProfile.id === "string" &&
+      memberProfile.id) ||
+    "fitmate-default-user";
+
+  const progressTargetWeight: number | null =
+    typeof memberProfile === "object" &&
+    memberProfile &&
+    "targetWeightKg" in memberProfile &&
+    typeof memberProfile.targetWeightKg === "number"
+      ? memberProfile.targetWeightKg
+      : typeof memberProfile === "object" &&
+        memberProfile &&
+        "target_weight_kg" in memberProfile &&
+        typeof memberProfile.target_weight_kg === "number"
+      ? memberProfile.target_weight_kg
+      : null;
+
+  const fetchProgressLogs = useCallback(async () => {
+    setLoadingProgress(true);
+    try {
+      const { data, error } = await supabase
+        .from("body_progress_logs")
+        .select("*")
+        .eq("user_id", progressUserKey)
+        .order("recorded_date", { ascending: true });
+
+      if (error) {
+        console.error("Error mengambil body_progress_logs:", error.message);
+        return;
+      }
+
+      setProgressLogs((data as BodyProgressLog[]) ?? []);
+    } finally {
+      setLoadingProgress(false);
+    }
+  }, [progressUserKey]);
+
+  useEffect(() => {
+    if (activeTab === "progress") {
+      fetchProgressLogs();
+    }
+  }, [activeTab, fetchProgressLogs]);
+
+  const handleSaveProgressLog = useCallback(
+    async (payload: Omit<BodyProgressLog, "id" | "user_id">) => {
+      const rowPayload = {
+        user_id: progressUserKey,
+        recorded_date: payload.recorded_date,
+        weight_kg: payload.weight_kg,
+        waist_cm: payload.waist_cm ?? null,
+        chest_cm: payload.chest_cm ?? null,
+        hip_cm: payload.hip_cm ?? null,
+        arm_cm: payload.arm_cm ?? null,
+        notes: payload.notes ?? null,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("body_progress_logs")
+        .upsert(rowPayload, { onConflict: "user_id,recorded_date" });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      await fetchProgressLogs();
+    },
+    [progressUserKey, fetchProgressLogs]
+  );
 
   const t = dictionary[lang];
   const weeklyWorkoutGoal = computedFromMember.weeklyWorkoutGoal;
@@ -558,9 +643,9 @@ function AuthenticatedWorkspace({
         )}
 
         {/* KONTEN TAB LATIHAN */}
-      {activeTab === "workout" && (
-        <WorkoutTab lang={lang} />
-      )}
+        {activeTab === "workout" && (
+          <WorkoutTab lang={lang} />
+        )}
 
         {/* KONTEN TAB NUTRISI */}
         {activeTab === "nutrition" && (
@@ -573,7 +658,18 @@ function AuthenticatedWorkspace({
 
         {/* KONTEN TAB PROGRES */}
         {activeTab === "progress" && (
-          <ProgressTab lang={lang} onTargetsCalculated={handleTargetsCalculated} />
+          <section className="space-y-6">
+            <DietProgressFollowUp
+              logs={progressLogs}
+              targetWeightKg={progressTargetWeight}
+              loading={loadingProgress}
+              onSaveLog={handleSaveProgressLog}
+            />
+            <ProgressTab
+              lang={lang}
+              onTargetsCalculated={handleTargetsCalculated}
+            />
+          </section>
         )}
 
         {/* KONTEN TAB AI COACH */}
